@@ -1,0 +1,17 @@
+LiveRoomID = 4206123            # 设置房间ID，值为 0 时需要手动输入直播间ID
+
+NextSong  = "F5"          # 切歌热键
+RetrySong = "F6"          # 重新跳转当前歌曲热键
+SkipSong  = "F7"          # 跳过当前选择的歌曲热键
+ClearList = "F8"          # 清空列表热键
+Console   = "ctrl+alt+F9" # 激活控制台输入热键
+
+# 设置搜索结果和选歌列表开头显示的文本，可以直接回车换行不需要输入换行符
+
+SongSearchTitle = '''
+SE <歌曲名称>搜索歌曲
+ID <歌曲ID>  点歌
+'''
+SongSelectTitle = '''
+点歌列表：
+'''
