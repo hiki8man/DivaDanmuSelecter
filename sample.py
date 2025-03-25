@@ -182,7 +182,9 @@ class SongSelect:
     
     async def ChangeSong(self,_ID):
         async with changesonglock:
-            if IDManager().CheckID(int(_ID)):
+            #添加状态检测防止在选歌界面跳转卡BUG
+            #目前的实现是读取准备跳转的值，严格来说应该读上一个4字节位置的值，遇到BUG再细究x
+            if IDManager().CheckID(int(_ID)) and self.pm.read_int(self.ChangeSongSelect) == 6:
                 self.pm.write_int(self.ChangeSongSelect, 6)
                 self.pm.write_int(self.StartChange, 2)
                 #挂起一段时间让游戏切换到PV鉴赏模式，原本使用的是32ms，但似乎仍然太短，目前更换到了100ms
@@ -197,7 +199,7 @@ class SongSelect:
                 self.pm.write_int(self.StartChange, 2)
                 return True
             else:
-                print("该ID不存在！")
+                print("该ID不存在或没有在选歌界面跳转！")
                 return False
 
 async def AddIDList(ID: int):
@@ -240,11 +242,12 @@ async def command_line_menu():
             case ["nx"]:
                 if len(SelectIDList) == 0:
                     SelectID = -1
-                else:
+                  else:
                     SelectID = SelectIDList[0]
-                    SelectIDList.pop(0)
-                    await SelectManager.ChangeSong(SelectID)
-                    await WriteSongIDList()
+                    #添加检测，如果没有在选歌界面则不删除列表
+                    if await SelectManager.ChangeSong(SelectID):
+                        SelectIDList.pop(0)
+                        await WriteSongIDList()
             case ["re"]:
                 if SelectID != -1:
                     print(f"重新跳转歌曲：{SongIDManager.ID_dict[SelectID]}")
