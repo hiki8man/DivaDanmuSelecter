@@ -1,5 +1,5 @@
 # DivaDanmuSelecter
-基于Pymem和blivedm库实现的弹幕点歌姬
+基于Pymem和blivedm库实现的歌姬计划MEGA39+弹幕点歌姬
 
 ## 原理
 M39+游戏有一个地址会保存最后一次退出时选择的歌曲ID，本程序利用了这一点修改地址切换状态到PV鉴赏模式后更改ID值后再切回选歌界面从而实现了游戏内切歌  
