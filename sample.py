@@ -180,6 +180,7 @@ class SongSelect:
             if IDManager().CheckID(int(_ID)):
                 self.pm.write_int(self.ChangeSongSelect, 6)
                 self.pm.write_int(self.StartChange, 2)
+                #挂起一段时间让游戏切换到PV鉴赏模式
                 await asyncio.sleep(0.032)
                 self.pm.write_int(self.LastSelectPVIDMem, int(_ID))
                 #跳转难度
