@@ -29,6 +29,11 @@ def cleartxt(clearall = True):
 def custom_excepthook(exc_type, exc_value, traceback_obj):
 
     # 记录异常到日志文件
+    logging.basicConfig(
+    filename='crash.log',
+    level=logging.ERROR,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+    )
     logging.error("程序崩溃", exc_info=(exc_type, exc_value, traceback_obj))
 
     
@@ -180,8 +185,8 @@ class SongSelect:
             if IDManager().CheckID(int(_ID)):
                 self.pm.write_int(self.ChangeSongSelect, 6)
                 self.pm.write_int(self.StartChange, 2)
-                #挂起一段时间让游戏切换到PV鉴赏模式
-                await asyncio.sleep(0.032)
+                #挂起一段时间让游戏切换到PV鉴赏模式，原本使用的是32ms，但似乎仍然太短，目前更换到了100ms
+                await asyncio.sleep(0.1)
                 self.pm.write_int(self.LastSelectPVIDMem, int(_ID))
                 #跳转难度
                 #锁定到难度分类
