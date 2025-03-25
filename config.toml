@@ -1,4 +1,4 @@
-LiveRoomID = 4206123            # 设置房间ID，值为 0 时需要手动输入直播间ID
+LiveRoomID = 0            # 设置房间ID，值为 0 时需要手动输入直播间ID
 
 NextSong  = "F5"          # 切歌热键
 RetrySong = "F6"          # 重新跳转当前歌曲热键
