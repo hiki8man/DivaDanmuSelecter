@@ -12,6 +12,13 @@ import sys,time,logging
 import json
 import aiofiles
 import keyboard
+import requests,SongListServer
+
+def update_song_list(songs:list =[]):
+    requests.post(
+        "http://localhost:8080/update",
+        json={"songs": songs}
+    )
 
 with open("config.toml","rb") as f:
     config = tomllib.load(f)
@@ -35,7 +42,6 @@ def custom_excepthook(exc_type, exc_value, traceback_obj):
     format='%(asctime)s - %(levelname)s - %(message)s'
     )
     logging.error("程序崩溃", exc_info=(exc_type, exc_value, traceback_obj))
-
     
     # 控制台输出
     sys.__excepthook__(exc_type, exc_value, traceback_obj)
@@ -49,6 +55,7 @@ SelectIDList = []
 IDlock = asyncio.Lock()
 SElock = asyncio.Lock()
 changesonglock = asyncio.Lock()
+
 class IDManager:
     ID_dict = {}
     Name_dict = {}
@@ -75,8 +82,8 @@ class IDManager:
         for func in funcs:
             ans = func(_Name)
             if ans:
-                return ans
-        return []
+                return list(set(ans))
+        return [f"没有找到与 {_Name} 相关的歌曲"]
     
     def __Search_Str(self,_Name:str):
         return self.__SearchName(_Name)
@@ -182,12 +189,9 @@ class SongSelect:
     
     async def ChangeSong(self,_ID):
         async with changesonglock:
-            #添加状态检测防止在选歌界面跳转卡BUG
-            #目前的实现是读取准备跳转的值，严格来说应该读上一个4字节位置的值，遇到BUG再细究x
             if IDManager().CheckID(int(_ID)) and self.pm.read_int(self.ChangeSongSelect) == 6:
                 self.pm.write_int(self.ChangeSongSelect, 6)
                 self.pm.write_int(self.StartChange, 2)
-                #挂起一段时间让游戏切换到PV鉴赏模式，原本使用的是32ms，但似乎仍然太短，目前更换到了100ms
                 await asyncio.sleep(0.1)
                 self.pm.write_int(self.LastSelectPVIDMem, int(_ID))
                 #跳转难度
@@ -211,12 +215,12 @@ async def AddIDList(ID: int):
         print("该ID不存在！")
 
 async def WriteSongIDList():
-    global SongIDManager
-    global SelectIDList
     async with IDlock:
         try:
             async with aiofiles.open("SongSelect.txt", "w", encoding="UTF-8") as f:
-                await f.writelines([SongSelectTitle]+[f"{SongIDManager.ID_dict[SongID]}" for SongID in SelectIDList])
+                SelectSongList = [f"{SongIDManager.ID_dict[SongID]}\n" for SongID in SelectIDList]
+                await f.writelines([SongSelectTitle] + SelectSongList)
+            update_song_list(SelectSongList)
         except Exception as e:
             print(f"文件写入失败: {e}")
 
@@ -242,9 +246,8 @@ async def command_line_menu():
             case ["nx"]:
                 if len(SelectIDList) == 0:
                     SelectID = -1
-                  else:
+                else:
                     SelectID = SelectIDList[0]
-                    #添加检测，如果没有在选歌界面则不删除列表
                     if await SelectManager.ChangeSong(SelectID):
                         SelectIDList.pop(0)
                         await WriteSongIDList()
@@ -273,6 +276,7 @@ async def command_line_menu():
                 SelectIDList.clear()
                 SelectID = -1
                 cleartxt()
+                update_song_list()
                 print("已清空所有歌曲列表")
             case [command] if command == "help" or command == "-h":
                 print("\n指令列表：\nnx：跳转到下一首歌\nre：重新跳转当前歌曲\nskip：跳过当前选择歌曲\nid：在 id 后面打好空格后输入pvid跳转对应歌曲\nse：按歌名搜索歌曲\nclear：清空所有列表\n")
@@ -377,6 +381,7 @@ def setup_hotkey(main_loop):
 
 async def main():
     init_session()
+    SongListServer.songlistserverrun()
     main_loop = asyncio.get_running_loop()  # 获取当前事件循环
     setup_hotkey(main_loop)  # 传递主事件循环
     await asyncio.gather(
