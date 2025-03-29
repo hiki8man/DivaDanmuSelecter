@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        :root {
+            --base-width: 600px;
+            --title-size: 32px;
+            --song-size: 24px;
+            --stroke-width: calc(var(--song-size) * 0.18);
+            --spacing: 8px;
+            --text-color: white;
+            --stroke-color: #222;
+            --text-padding: 15px;
+            --title-line-height: 1.8;
+            --song-line-height: 1.3;
+            --scroll-speed: 30px;
+            --text-vertical-padding: 4px;
+            
+            /* 新增总数样式变量 */
+            --count-size: calc(var(--title-size) * 0.7);
+            --count-spacing: 10px;
+        }
+
+        .title-container {
+            margin-bottom: var(--spacing);
+            height: calc(var(--title-size) * var(--title-line-height));
+            width: 100%;
+            min-width: 400px;
+            position: relative;
+        }
+
+        .title-svg {
+            width: 100%;
+            height: 100%;
+            viewBox: 0 0 400 50;
+            preserveAspectRatio: xMidYMid meet;
+        }
+
+        .title-text {
+            font-size: var(--title-size);
+            font-family: 'Arial Black', sans-serif;
+            fill: var(--text-color);
+            stroke: var(--stroke-color);
+            stroke-width: var(--stroke-width);
+            stroke-linejoin: round;
+            paint-order: stroke;
+            text-anchor: middle;
+            dominant-baseline: middle;
+        }
+
+        .song-count {
+            font-size: var(--count-size);
+            font-family: 'Arial', sans-serif;
+            fill: var(--text-color);
+            stroke: var(--stroke-color);
+            stroke-width: calc(var(--stroke-width) * 0.8);
+            paint-order: stroke;
+            opacity: 0.9;
+            text-anchor: start;
+            dominant-baseline: middle;
+        }
+
+        .song-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            height: calc(540px - var(--title-size) * var(--title-line-height) - var(--spacing) * 2);
+            overflow-y: auto;
+            scrollbar-width: none;
+            min-width: 400px;
+        }
+
+        .song-list::-webkit-scrollbar {
+            display: none;
+        }
+
+        .song-item {
+            margin-bottom: 4px;
+            height: calc(var(--song-size) * var(--song-line-height) + var(--text-vertical-padding) * 1.2);
+            position: relative;
+            overflow: hidden;
+            min-width: 400px;
+        }
+
+        .song-svg {
+            width: 100%;
+            height: 100%;
+            overflow: visible;
+            min-width: 400px;
+            viewBox: 0 0 400 34;
+            preserveAspectRatio: none;
+        }
+
+        .song-text {
+            font-size: var(--song-size);
+            font-family: 'Arial Black', sans-serif;
+            fill: var(--text-color);
+            stroke: var(--stroke-color);
+            stroke-width: var(--stroke-width);
+            stroke-linejoin: round;
+            paint-order: stroke;
+            letter-spacing: -0.1px;
+            white-space: nowrap;
+            text-anchor: start;
+            dominant-baseline: middle;
+            dy: 0.3em;
+        }
+
+        @media (max-width: 600px) {
+            :root {
+                --count-size: calc(var(--title-size) * 0.7);
+                --count-spacing: 6px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="title-container">
+            <svg class="title-svg">
+                <text class="title-text" x="50%" y="50%">
+                    SongList
+                    <tspan class="song-count" dx="var(--count-spacing)"></tspan>
+                </text>
+            </svg>
+        </div>
+
+        <ul class="song-list" id="songList">
+            {''.join(f'''
+            <li class="song-item">
+                <svg class="song-svg">
+                    <text class="song-text" x="var(--text-padding)" y="54%">{i+1}. {song}</text>
+                </svg>
+            </li>
+            ''' for i, song in enumerate(self.songs))}
+        </ul>
+    </div>
+
+    <script>
+        class Marquee {
+            // 保持原有跑马灯类不变
+            constructor(element) { /* ... */ }
+            init() { /* ... */ }
+            checkScrollNeeded() { /* ... */ }
+            startAnimationCycle() { /* ... */ }
+            runNextPhase() { /* ... */ }
+            startScroll() { /* ... */ }
+            resetPosition() { /* ... */ }
+            stopAnimation() { /* ... */ }
+            destroy() { /* ... */ }
+        }
+
+        let marquees = [];
+        function initMarquees() {
+            marquees.forEach(m => m.destroy());
+            marquees = [];
+            document.querySelectorAll('.song-item').forEach(item => {
+                marquees.push(new Marquee(item));
+            });
+        }
+
+        // 统一更新函数
+        function updateInterface(data) {
+            const songList = document.getElementById('songList');
+            const countElement = document.querySelector('.song-count');
+            
+            // 更新歌曲列表
+            songList.innerHTML = data.songs.map((song, index) => `
+                <li class="song-item">
+                    <svg class="song-svg">
+                        <text class="song-text" x="15" y="50%">${index + 1}. ${song}</text>
+                    </svg>
+                </li>
+            `).join('');
+
+            // 更新歌曲总数
+            countElement.textContent = `(${data.songs.length})`;
+            
+            // 初始化跑马灯效果
+            setTimeout(initMarquees, 50);
+            
+            // 动态调整总数位置
+            const titleWidth = document.querySelector('.title-text').getBBox().width;
+            const newSpacing = titleWidth * 0.05 + 8;
+            document.documentElement.style.setProperty('--count-spacing', `${newSpacing}px`);
+        }
+
+        // SSE连接
+        const eventSource = new EventSource('/stream');
+        eventSource.onmessage = e => updateInterface(JSON.parse(e.data));
+
+        // 初始加载
+        fetch('/songs')
+            .then(res => res.json())
+            .then(updateInterface)
+            .catch(console.error);
+
+        // 窗口resize处理
+        window.addEventListener('resize', () => {
+            clearTimeout(window.resizeTimer);
+            window.resizeTimer = setTimeout(initMarquees, 200);
+        });
+    </script>
+</body>
+</html>
