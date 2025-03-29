@@ -4,14 +4,19 @@ import http.cookies
 from typing import *
 from aioconsole import ainput
 import aiohttp
-import blivedm
-import blivedm.models.web as web_models
 from pathlib import Path
 import tomllib,psutil,pymem
 import sys,time,logging
 import json
 import aiofiles
 import keyboard
+import requests,SongListServer
+
+def update_song_list(songs:list =[]):
+    requests.post(
+        "http://localhost:8080/update",
+        json={"songs": songs}
+    )
 
 with open("config.toml","rb") as f:
     config = tomllib.load(f)
@@ -35,7 +40,6 @@ def custom_excepthook(exc_type, exc_value, traceback_obj):
     format='%(asctime)s - %(levelname)s - %(message)s'
     )
     logging.error("程序崩溃", exc_info=(exc_type, exc_value, traceback_obj))
-
     
     # 控制台输出
     sys.__excepthook__(exc_type, exc_value, traceback_obj)
@@ -49,9 +53,12 @@ SelectIDList = []
 IDlock = asyncio.Lock()
 SElock = asyncio.Lock()
 changesonglock = asyncio.Lock()
+
 class IDManager:
     ID_dict = {}
+    EN_ID_dict = {}
     Name_dict = {}
+    ENName_dict = {}
     
     def __init__(self):
         with open(r"Data\HanziKanjiDict.txt","r",encoding="UTF-8") as f:
@@ -71,16 +78,23 @@ class IDManager:
             return False
     
     def SearchName(self,_Name:str):
-        funcs = [self.__Search_Str,self.__Search_Hanzi2Kanji,self.__Search_AnotherName]
+        funcs = [self.__Search_Str,self.__SearchENName,self.__Search_Hanzi2Kanji,self.__Search_AnotherName]
         for func in funcs:
             ans = func(_Name)
             if ans:
-                return ans
-        return []
+                return list(set(ans))
+        return [f"No search results found related to {_Name} "]
     
     def __Search_Str(self,_Name:str):
         return self.__SearchName(_Name)
-    
+
+    def __SearchENName(self,_Name):
+        ans = []
+        for SongName in IDManager.ENName_dict.keys():
+            if _Name.lower() in SongName.lower():
+                ans.append(f"{SongName}：{IDManager.ENName_dict[SongName]}\n")
+        return ans
+
     def __Search_Hanzi2Kanji(self,_Name:str):
         new_Name = _Name.translate(self.Hanzi_Kanji)
         return self.__SearchName(new_Name)
@@ -142,25 +156,33 @@ class IDManager:
     def ReadPVDB(self,_file):
         with open(_file,"r",encoding="UTF-8") as f:
             text_list = f.readlines()
-        New_ID_dict = self.__GetInfo(text_list)
-        self.__Updata(New_ID_dict)
+        New_ID_dict,EN_New_ID_dict = self.__GetInfo(text_list)
+        self.__Updata(New_ID_dict,EN_New_ID_dict)
     
-    def __Updata(self,New_ID_dict):
+    def __Updata(self,New_ID_dict,EN_New_ID_dict):
         IDManager.ID_dict = New_ID_dict | IDManager.ID_dict
-        New_Name_dict = {}
-        for key, value in IDManager.ID_dict.items():
-            New_Name_dict.setdefault(value, []).append(key)
-        IDManager.Name_dict = New_Name_dict
+        IDManager.EN_ID_dict = EN_New_ID_dict | IDManager.EN_ID_dict
+        IDManager.Name_dict = self.__UpdataNameDict(IDManager.ID_dict)
+        IDManager.ENName_dict = self.__UpdataNameDict(IDManager.EN_ID_dict)
+    
+    def __UpdataNameDict(self,_dict):
+        New_dict = {}
+        for key, value in _dict.items():
+            New_dict.setdefault(value, []).append(key)
+        return New_dict
     
     def __GetInfo(self,text_list):
         id_list = []
         name_list = []
+        en_name_list = []
         for info in text_list:
             info_id = info.split(".song_name=")[0][3:]
             if info_id.isdigit() and id_list.count(int(info_id)) == 0 :
                 id_list.append(int(info_id))
                 name_list.append(info.split(".song_name=")[1].replace("\n",""))
-        return dict(zip(id_list,name_list))
+            if ".song_name_en=" in info:
+                en_name_list.append(info.split(".song_name_en=")[1].replace("\n",""))
+        return dict(zip(id_list,name_list)),dict(zip(id_list,en_name_list))
 
 class SongSelect:
     
@@ -182,12 +204,9 @@ class SongSelect:
     
     async def ChangeSong(self,_ID):
         async with changesonglock:
-            #添加状态检测防止在选歌界面跳转卡BUG
-            #目前的实现是读取准备跳转的值，严格来说应该读上一个4字节位置的值，遇到BUG再细究x
             if IDManager().CheckID(int(_ID)) and self.pm.read_int(self.ChangeSongSelect) == 6:
                 self.pm.write_int(self.ChangeSongSelect, 6)
                 self.pm.write_int(self.StartChange, 2)
-                #挂起一段时间让游戏切换到PV鉴赏模式，原本使用的是32ms，但似乎仍然太短，目前更换到了100ms
                 await asyncio.sleep(0.1)
                 self.pm.write_int(self.LastSelectPVIDMem, int(_ID))
                 #跳转难度
@@ -211,12 +230,12 @@ async def AddIDList(ID: int):
         print("该ID不存在！")
 
 async def WriteSongIDList():
-    global SongIDManager
-    global SelectIDList
     async with IDlock:
         try:
             async with aiofiles.open("SongSelect.txt", "w", encoding="UTF-8") as f:
-                await f.writelines([SongSelectTitle]+[f"{SongIDManager.ID_dict[SongID]}" for SongID in SelectIDList])
+                SelectSongList = [f"{SongIDManager.ID_dict[SongID]}\n" for SongID in SelectIDList]
+                await f.writelines([SongSelectTitle] + SelectSongList)
+            update_song_list(SelectSongList)
         except Exception as e:
             print(f"文件写入失败: {e}")
 
@@ -242,9 +261,8 @@ async def command_line_menu():
             case ["nx"]:
                 if len(SelectIDList) == 0:
                     SelectID = -1
-                  else:
+                else:
                     SelectID = SelectIDList[0]
-                    #添加检测，如果没有在选歌界面则不删除列表
                     if await SelectManager.ChangeSong(SelectID):
                         SelectIDList.pop(0)
                         await WriteSongIDList()
@@ -273,6 +291,7 @@ async def command_line_menu():
                 SelectIDList.clear()
                 SelectID = -1
                 cleartxt()
+                update_song_list()
                 print("已清空所有歌曲列表")
             case [command] if command == "help" or command == "-h":
                 print("\n指令列表：\nnx：跳转到下一首歌\nre：重新跳转当前歌曲\nskip：跳过当前选择歌曲\nid：在 id 后面打好空格后输入pvid跳转对应歌曲\nse：按歌名搜索歌曲\nclear：清空所有列表\n")
@@ -310,47 +329,22 @@ async def command_line_menu():
         commandlist[0] = commandlist[0].lower()
         SelectID = await usercommand(commandlist,SelectID)
 
-if config["LiveRoomID"] > 0:
-    ROOMID:int = config["LiveRoomID"]
-else:
-    ROOMID:str = input("输入房间号\n")
-    if not ROOMID.isdigit():
-        print("Error")
-        exit()
+from twitch_chat_irc import twitch_chat_irc
+from threading import Thread
 
+def do_something(message):
+    match message["message"].split(maxsplit=1):
+        case [command,ID] if command.lower() == "!id" and ID.isdigit():
+            print(f"弹幕添加ID {ID}")
+            asyncio.run_coroutine_threadsafe(AddIDList(int(ID)),main_loop)
+            cleartxt(False)
+        case [command,Name] if command.lower() == "!se":
+            print(f"弹幕搜索歌名 {Name}")
+            asyncio.run_coroutine_threadsafe(WriteSearchList(Name),main_loop)
 
-# 这里填一个已登录账号的cookie的SESSDATA字段的值。不填也可以连接，但是收到弹幕的用户名会打码，UID会变成0
-SESSDATA = ''
-
-session: Optional[aiohttp.ClientSession] = None
-
-def init_session():
-    cookies = http.cookies.SimpleCookie()
-    cookies['SESSDATA'] = SESSDATA
-    cookies['SESSDATA']['domain'] = 'bilibili.com'
-
-    global session
-    session = aiohttp.ClientSession()
-    session.cookie_jar.update_cookies(cookies)
-
-async def run_single_client():
-    room_id = int(ROOMID)
-    client = blivedm.BLiveClient(room_id, session=session)
-    handler = MyHandler()
-    client.set_handler(handler)
-    client.start()
-
-class MyHandler(blivedm.BaseHandler):
-
-    def _on_danmaku(self, client: blivedm.BLiveClient, message: web_models.DanmakuMessage):
-        match message.msg.split(maxsplit=1):
-            case [command,ID] if command.lower() == "id" and ID.isdigit():
-                print(f"弹幕添加ID {ID}")
-                asyncio.create_task(AddIDList(int(ID)))
-                cleartxt(False)
-            case [command,Name] if command.lower() == "se":
-                print(f"弹幕搜索歌名 {Name}")
-                asyncio.create_task(WriteSearchList(Name))
+def run_twitch():
+    connection = twitch_chat_irc.TwitchChatIRC()
+    connection.listen(config["channel"], on_message=do_something)
 
 SongIDManager = IDManager()
 SongIDManager.Read_M39ID()
@@ -376,11 +370,14 @@ def setup_hotkey(main_loop):
     keyboard.add_hotkey(config["Console"], create_handler("Console"))
 
 async def main():
-    init_session()
-    main_loop = asyncio.get_running_loop()  # 获取当前事件循环
+    global main_loop
+    SongListServer.songlistserverrun()
+    main_loop = asyncio.get_running_loop() 
     setup_hotkey(main_loop)  # 传递主事件循环
+    twitch_message = Thread(target=run_twitch)
+    twitch_message.start()
     await asyncio.gather(
-        run_single_client(),
         command_line_menu()
     )
+main_loop = ""
 asyncio.run(main())
